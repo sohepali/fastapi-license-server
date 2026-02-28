@@ -1,56 +1,42 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import create_engine, Column, String, DateTime, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
+from jose import jwt
+import os
 from dotenv import load_dotenv
-import os
-from jose import jwt
-from jose import jwt
-from datetime import datetime, timedelta
-import os
 
-# Load private key from file or environment variable
-with open("private_key.pem", "r") as f:
-    PRIVATE_KEY = f.read()
-
-ALGORITHM = "RS256"
-ACCESS_TOKEN_EXPIRE_DAYS = 30  # or whatever your license period is
 # =========================
 # LOAD ENVIRONMENT VARIABLES
 # =========================
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+PRIVATE_KEY = os.getenv("PRIVATE_KEY")   # Will contain the RSA private key with \n for newlines
 
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL not found in .env file")
+if not PRIVATE_KEY:
+    raise ValueError("PRIVATE_KEY not found in .env file")
+
+# Handle newlines in environment variable
+PRIVATE_KEY = PRIVATE_KEY.replace("\\n", "\n")
+
+ALGORITHM = "RS256"
+ACCESS_TOKEN_EXPIRE_DAYS = 30
 
 # =========================
 # DATABASE SETUP
 # =========================
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True
-)
-
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 # =========================
 # PASSWORD HASHING SETUP
 # =========================
-SECRET_KEY = "CHANGE_THIS_TO_RANDOM_SECRET"
-ALGORITHM = "HS256"
-
-def create_access_token(email: str):
-    payload = {
-        "sub": email,
-        "exp": datetime.utcnow() + timedelta(hours=12)
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str):
@@ -82,7 +68,7 @@ class User(Base):
 
     device_id = Column(String, nullable=True)
 
-# Create tables
+# Create tables (optional - better to run migrations separately)
 Base.metadata.create_all(bind=engine)
 
 # =========================
@@ -99,6 +85,9 @@ class LoginRequest(BaseModel):
     password: str
     device_id: str
 
+class VerifyRequest(BaseModel):
+    email: EmailStr
+
 # =========================
 # DEPENDENCY: GET DB SESSION
 # =========================
@@ -114,7 +103,6 @@ def get_db():
 # =========================
 @app.post("/register")
 def register(data: RegisterRequest, db: Session = Depends(get_db)):
-
     existing_user = db.query(User).filter(User.email == data.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -141,7 +129,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     return {
         "message": "User registered successfully",
         "subscription_type": "trial",
-        "expires_on": expiry_date
+        "expires_on": expiry_date.isoformat()
     }
 
 # =========================
@@ -154,12 +142,12 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if datetime.utcnow() > user.subscription_expiry:
-        return {"status": "expired", "message": "Subscription expired"}
+        raise HTTPException(status_code=403, detail="License expired")
 
     # Create JWT payload
     payload = {
         "email": user.email,
-        "device_id": user.device_id,          # you should store this during registration
+        "device_id": user.device_id,
         "expiry": user.subscription_expiry.isoformat(),
         "exp": datetime.utcnow() + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
     }
@@ -171,33 +159,26 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     }
 
 # =========================
-# VERIFY/CHECK LICENSE ENDPOINTS
+# VERIFY ENDPOINT (simple email verification, no code check)
 # =========================
-class VerifyRequest(BaseModel):
-    email: EmailStr
-
 @app.post("/verify")
 def verify_user(data: VerifyRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Logic: Set user as verified
+
     user.is_verified = True
     db.commit()
     return {"status": "success", "message": "User verified successfully"}
 
-from fastapi import Header
-
+# =========================
+# CHECK LICENSE ENDPOINT
+# =========================
 @app.post("/check_license")
-def check_license(token_data: dict, db: Session = Depends(get_db)):
-    # token_data should contain the current token (sent in Authorization header)
-    # In a real implementation, you'd extract the email from the token.
-    # For simplicity, we assume the token is sent in the body as {"token": "..."}
-    # But better: use Authorization: Bearer <token>
-    token = token_data.get("token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing token")
+def check_license(authorization: str = Header(...), db: Session = Depends(get_db)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = authorization.split(" ")[1]
 
     try:
         payload = jwt.decode(token, PRIVATE_KEY, algorithms=[ALGORITHM])
@@ -223,7 +204,9 @@ def check_license(token_data: dict, db: Session = Depends(get_db)):
 
     return {"token": new_token}
 
-
+# =========================
+# TIME ENDPOINT (optional, for trusted time fallback)
+# =========================
 @app.get("/time")
 def get_time():
     return {"timestamp": datetime.utcnow().timestamp()}
