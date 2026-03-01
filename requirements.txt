@@ -6,3 +6,4 @@ python-jose
 pydantic
 python-dotenv
 psycopg2-binary
+email-validator
