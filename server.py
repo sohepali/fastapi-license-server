@@ -107,10 +107,14 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    try:
+        hashed_pw = hash_password(data.password)
+    except ValueError as e:
+        # This catches bcrypt's "password too long" and other hashing errors
+        raise HTTPException(status_code=400, detail=str(e))
+
     trial_start = datetime.utcnow()
     expiry_date = trial_start + timedelta(days=3)
-
-    hashed_pw = hash_password(data.password)
 
     new_user = User(
         email=data.email,
