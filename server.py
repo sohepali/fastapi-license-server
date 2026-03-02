@@ -162,6 +162,14 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         "token_type": "bearer"
     }
 
+
+@app.get("/db_check")
+def db_check(db: Session = Depends(get_db)):
+    try:
+        count = db.query(User).count()
+        return {"status": "ok", "user_count": count}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
 # =========================
 # VERIFY ENDPOINT (simple email verification, no code check)
 # =========================
