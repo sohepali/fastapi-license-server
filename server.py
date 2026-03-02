@@ -108,10 +108,13 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     try:
+        if len(data.password.encode("utf-8")) > 72:
+            raise HTTPException(
+                status_code=400,
+                detail="Password must be 72 bytes or fewer."
+            )
+
         hashed_pw = hash_password(data.password)
-    except ValueError as e:
-        # This catches bcrypt's "password too long" and other hashing errors
-        raise HTTPException(status_code=400, detail=str(e))
 
     trial_start = datetime.utcnow()
     expiry_date = trial_start + timedelta(days=3)
