@@ -193,21 +193,19 @@ def root():
 # REGISTER
 # ------------------------------
 
+from fastapi import Request
+
 @app.post("/register")
 @limiter.limit("3/minute")
-def register(data: RegisterRequest, db: Session = Depends(get_db)):
+def register(request: Request, data: RegisterRequest, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.email == data.email).first()
 
     if user:
-
         if not user.email_verified:
-
             send_verification_email(user.email, user.verification_code)
-
             return {"message": "verification code resent"}
-
-        return {"message": "email already registered"}
+        return {"message": "email already registered, please login"}
 
     code = str(secrets.randbelow(900000) + 100000)
 
@@ -224,7 +222,6 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
     send_verification_email(data.email, code)
 
     return {"message": "verification code sent"}
-
 
 # ------------------------------
 # VERIFY EMAIL
