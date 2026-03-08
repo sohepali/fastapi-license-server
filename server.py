@@ -213,7 +213,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)):
 
     new_user = User(
         email=data.email,
-        password=hash_password(data.password)و
+        password=hash_password(data.password),
         verification_code=code,
         email_verified=False
     )
