@@ -100,7 +100,9 @@ def verify_password(plain_password: str, hashed_password: str):
 # FASTAPI INSTANCE
 # =========================
 app = FastAPI()
-
+@app.get("/")
+def root():
+    return {"status": "server running"}
 # =========================
 # DATABASE MODEL
 # =========================
