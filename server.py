@@ -148,16 +148,13 @@ Your verification code:
     msg["To"] = email
 
     try:
-
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_USER, email, msg.as_string())
-
     except Exception as e:
-
         print("Email error:", e)
+        raise
 
 
 # ------------------------------
@@ -219,8 +216,13 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
     db.add(new_user)
     db.commit()
 
-    send_verification_email(data.email, code)
-
+    try:
+        send_verification_email(data.email, code)
+    except Exception as e:
+        # Optionally delete the user if creation succeeded but email failed
+        db.delete(new_user)
+        db.commit()
+        raise HTTPException(status_code=500, detail="Failed to send verification email")
     return {"message": "verification code sent"}
 
 # ------------------------------
