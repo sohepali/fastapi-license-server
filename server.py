@@ -19,6 +19,7 @@ from passlib.context import CryptContext
 import hashlib
 from fastapi import Request
 
+
 def create_device_fingerprint(device_id: str, request: Request) -> str:
     """
     Generates a device fingerprint based on device_id, client IP, and user-agent.
@@ -147,14 +148,11 @@ Your verification code:
     msg["From"] = SMTP_USER
     msg["To"] = email
 
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_USER, email, msg.as_string())
-    except Exception as e:
-        print("Email error:", e)
-        raise
+    server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+    server.starttls()
+    server.login(SMTP_USER, SMTP_PASSWORD)
+    server.sendmail(SMTP_USER, email, msg.as_string())
+    server.quit()
 
 
 # ------------------------------
@@ -206,6 +204,11 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
 
     code = str(secrets.randbelow(900000) + 100000)
 
+    try:
+        send_verification_email(data.email, code)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to send verification email")
+
     new_user = User(
         email=data.email,
         password=hash_password(data.password),
@@ -216,15 +219,7 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
     db.add(new_user)
     db.commit()
 
-    try:
-        send_verification_email(data.email, code)
-    except Exception as e:
-        # Optionally delete the user if creation succeeded but email failed
-        db.delete(new_user)
-        db.commit()
-        raise HTTPException(status_code=500, detail="Failed to send verification email")
     return {"message": "verification code sent"}
-
 # ------------------------------
 # VERIFY EMAIL
 # ------------------------------
@@ -237,18 +232,19 @@ def verify_email(data: VerifyRequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if user.email_verified:
+        return {"message": "email already verified"}
+
     if user.verification_code != data.code:
         raise HTTPException(status_code=400, detail="Invalid code")
 
     user.email_verified = True
     user.verification_code = None
-
     user.subscription_expiry = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
 
     db.commit()
 
     return {"message": "email verified"}
-
 
 # ------------------------------
 # LOGIN
