@@ -153,7 +153,9 @@ def send_verification_email(email, code):
     except Exception as e:
         print("EMAIL ERROR:", e)
         raise e
-
+    print("SMTP_SERVER:", SMTP_SERVER)
+    print("SMTP_PORT:", SMTP_PORT)
+    print("SMTP_USER:", SMTP_USER)
 # ------------------------------
 # JWT
 # ------------------------------
