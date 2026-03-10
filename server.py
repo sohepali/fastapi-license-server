@@ -134,26 +134,25 @@ def get_db():
 # Email sender
 # ------------------------------
 
-def send_verification_email(email: str, code: str):
+def send_verification_email(email, code):
 
-    body = f"""
-Your verification code:
+    try:
+        msg = MIMEText(f"Your verification code is: {code}")
+        msg["Subject"] = "Email Verification"
+        msg["From"] = SMTP_USER
+        msg["To"] = email
 
-{code}
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.sendmail(SMTP_USER, email, msg.as_string())
+        server.quit()
 
-"""
+        print("Email sent successfully")
 
-    msg = MIMEText(body)
-    msg["Subject"] = "Email Verification"
-    msg["From"] = SMTP_USER
-    msg["To"] = email
-
-    server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-    server.starttls()
-    server.login(SMTP_USER, SMTP_PASSWORD)
-    server.sendmail(SMTP_USER, email, msg.as_string())
-    server.quit()
-
+    except Exception as e:
+        print("EMAIL ERROR:", e)
+        raise e
 
 # ------------------------------
 # JWT
