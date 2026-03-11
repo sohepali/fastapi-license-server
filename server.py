@@ -26,7 +26,7 @@ def create_device_fingerprint(device_id: str, request: Request) -> str:
     """
     user_agent = request.headers.get("user-agent", "")
     client_ip = request.client.host if request.client else ""
-    raw = f"{device_id}:{client_ip}:{user_agent}"
+    raw = f"{device_id}:{user_agent}"
     fingerprint = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return fingerprint
 
@@ -45,7 +45,7 @@ print("SMTP_PORT =", SMTP_PORT)
 print("SMTP_USER =", SMTP_USER)
 print("SMTP_PASSWORD exists =", SMTP_PASSWORD is not None)
 JWT_SECRET = os.getenv("JWT_SECRET")
-JWT_ALGORITHM = "HS256"
+JWT_ALGORITHM = "RS256"
 
 TRIAL_DAYS = 3
 
@@ -63,7 +63,7 @@ app.state.limiter = limiter
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[BASE_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -103,9 +103,10 @@ def verify_password(password, hashed):
 
 
 class RegisterRequest(BaseModel):
+    name: str
     email: EmailStr
     password: str
-
+    device_id: str
 
 class VerifyRequest(BaseModel):
     email: EmailStr
@@ -167,7 +168,9 @@ def create_access_token(email):
 
     payload = {
         "sub": email,
-        "exp": datetime.utcnow() + timedelta(hours=12)
+        "iat": datetime.utcnow(),
+        "exp": datetime.utcnow() + timedelta(hours=12),
+        "iss": "SAMA_AI"
     }
 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -185,8 +188,10 @@ def create_refresh_token():
 @app.get("/")
 def root():
 
-    return {"status": "server running"}
-
+    return {
+        "status": "server running",
+        "timestamp": datetime.utcnow().timestamp()
+    }
 
 # ------------------------------
 # REGISTER
@@ -199,6 +204,11 @@ from fastapi import Request
 def register(request: Request, data: RegisterRequest, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.email == data.email).first()
+    if user and user.email_verified:
+        raise HTTPException(
+            status_code=400,
+            detail="Email already registered"
+        )
 
     if user:
         if not user.email_verified:
@@ -218,9 +228,9 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
         email=data.email,
         password=hash_password(data.password),
         verification_code=code,
-        email_verified=False
+        email_verified=False,
+        device_id=None
     )
-
     db.add(new_user)
     db.commit()
 
@@ -299,6 +309,44 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
         "refresh_token": refresh_token
     }
 
+
+
+
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+security = HTTPBearer()
+
+@app.post("/check_license")
+def check_license(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+
+    token = credentials.credentials
+
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET,
+            algorithms=[JWT_ALGORITHM],
+            issuer="SAMA_AI"
+        )
+        email = payload["sub"]
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.subscription_expiry and datetime.utcnow() > user.subscription_expiry:
+        raise HTTPException(status_code=402, detail="Subscription expired")
+
+    # إصدار token جديد
+    new_token = create_access_token(user.email)
+
+    return {"token": new_token}
 # ------------------------------
 # REFRESH TOKEN
 # ------------------------------
@@ -307,7 +355,10 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
 def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.refresh_token == data.refresh_token).first()
-
+    user = db.query(User).filter(
+        User.refresh_token == data.refresh_token
+    ).first()
+    
     if not user:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
@@ -351,3 +402,20 @@ def account_status(email: str, db: Session = Depends(get_db)):
         "trial_active": trial_active,
         "days_left": days_left
     }
+
+
+
+@app.post("/renew/{email}")
+@limiter.limit("5/minute")
+def renew_subscription(email: str, db: Session = Depends(get_db)):
+
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.subscription_expiry = datetime.utcnow() + timedelta(days=30)
+
+    db.commit()
+
+    return {"message": "subscription renewed"}
