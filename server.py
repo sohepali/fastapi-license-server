@@ -143,15 +143,22 @@ import os
 
 def send_verification_email(email, code):
 
-    message = Mail(
-        from_email="sama.ai.license@gmail.com",
-        to_emails=email,
-        subject="Email Verification",
-        html_content=f"<strong>Your verification code is: {code}</strong>"
-    )
+    try:
+        message = Mail(
+            from_email="sama.ai.license@gmail.com",
+            to_emails=email,
+            subject="Email Verification",
+            html_content=f"<strong>Your verification code is: {code}</strong>"
+        )
 
-    sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
-    sg.send(message)
+        sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
+        response = sg.send(message)
+
+        print("SENDGRID STATUS:", response.status_code)
+
+    except Exception as e:
+        print("SENDGRID ERROR:", e)
+        raise e
 # ------------------------------
 # JWT
 # ------------------------------
@@ -203,8 +210,9 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
 
     try:
         send_verification_email(data.email, code)
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to send verification email")
+    except Exception as e:
+        print("EMAIL ERROR:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
     new_user = User(
         email=data.email,
