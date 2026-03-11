@@ -137,28 +137,21 @@ def get_db():
 # Email sender
 # ------------------------------
 
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+import os
+
 def send_verification_email(email, code):
 
-    try:
-        msg = MIMEText(f"Your verification code is: {code}")
-        msg["Subject"] = "Email Verification"
-        msg["From"] = SMTP_USER
-        msg["To"] = email
+    message = Mail(
+        from_email="sama.ai.license@gmail.com",
+        to_emails=email,
+        subject="Email Verification",
+        html_content=f"<strong>Your verification code is: {code}</strong>"
+    )
 
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, email, msg.as_string())
-        server.quit()
-
-        print("Email sent successfully")
-
-    except Exception as e:
-        print("EMAIL ERROR:", e)
-        raise e
-    print("SMTP_SERVER:", SMTP_SERVER)
-    print("SMTP_PORT:", SMTP_PORT)
-    print("SMTP_USER:", SMTP_USER)
+    sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
+    sg.send(message)
 # ------------------------------
 # JWT
 # ------------------------------
