@@ -407,7 +407,7 @@ def account_status(email: str, db: Session = Depends(get_db)):
 
 @app.post("/renew/{email}")
 @limiter.limit("5/minute")
-def renew_subscription(email: str, db: Session = Depends(get_db)):
+def renew_subscription(request: Request, email: str, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.email == email).first()
 
