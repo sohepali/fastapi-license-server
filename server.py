@@ -40,8 +40,11 @@ SMTP_PORT = int(os.getenv("SMTP_PORT"))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 BASE_URL = os.getenv("BASE_URL")
-
-JWT_SECRET = os.getenv("PRIVATE_KEY")
+print("SMTP_SERVER =", SMTP_SERVER)
+print("SMTP_PORT =", SMTP_PORT)
+print("SMTP_USER =", SMTP_USER)
+print("SMTP_PASSWORD exists =", SMTP_PASSWORD is not None)
+JWT_SECRET = os.getenv("JWT_SECRET")
 JWT_ALGORITHM = "HS256"
 
 TRIAL_DAYS = 3
