@@ -21,12 +21,7 @@ from fastapi import Request
 
 
 def create_device_fingerprint(device_id: str, request: Request) -> str:
-    """
-    Generates a device fingerprint based on device_id, client IP, and user-agent.
-    """
-    user_agent = request.headers.get("user-agent", "")
-    client_ip = request.client.host if request.client else ""
-    raw = f"{device_id}:{user_agent}"
+    raw = f"{device_id}"
     fingerprint = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return fingerprint
 
