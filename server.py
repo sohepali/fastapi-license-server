@@ -165,7 +165,8 @@ def create_access_token(email):
         "sub": email,
         "iat": datetime.utcnow(),
         "exp": datetime.utcnow() + timedelta(hours=12),
-        "iss": "SAMA_AI"
+        "iss": "SAMA_AI",
+        "expiry": subscription_expiry.isoformat()
     }
 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -293,7 +294,7 @@ def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
     # -------------------------
     # TOKEN CREATION
     # -------------------------
-    access_token = create_access_token(user.email)
+    access_token = create_access_token(user.email, user.subscription_expiry)
     refresh_token = create_refresh_token()
     user.refresh_token = refresh_token
 
@@ -339,7 +340,8 @@ def check_license(
         raise HTTPException(status_code=402, detail="Subscription expired")
 
     # إصدار token جديد
-    new_token = create_access_token(user.email)
+    new_token = create_access_token(user.email, user.subscription_expiry)
+
 
     return {"token": new_token}
 # ------------------------------
