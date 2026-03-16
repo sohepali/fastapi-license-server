@@ -159,18 +159,15 @@ def send_verification_email(email, code):
 # JWT
 # ------------------------------
 
-def create_access_token(email):
-
+def create_access_token(email: str, expiry: datetime) -> str:
     payload = {
         "sub": email,
         "iat": datetime.utcnow(),
         "exp": datetime.utcnow() + timedelta(hours=12),
         "iss": "SAMA_AI",
-        "expiry": subscription_expiry.isoformat()
+        "expiry": expiry.isoformat()
     }
-
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
 
 def create_refresh_token():
 
@@ -366,7 +363,7 @@ def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
             detail="Subscription expired"
         )
 
-    access_token = create_access_token(user.email)
+    access_token = create_access_token(user.email, user.subscription_expiry)
 
     return {"access_token": access_token}
 
