@@ -51,7 +51,7 @@ APP_BUILD_DATE = "May 2026"
 APP_WEBSITE_URL = os.getenv("APP_WEBSITE_URL", "https://samaail.netlify.app/")
 APP_DOWNLOAD_URL = os.getenv(
     "APP_DOWNLOAD_URL",
-    "https://samaail.netlify.app/#download",
+    "https://69fc831415505220d12439eb--profound-sfogliatella-81eec2.netlify.app/#download",
 )
 PAYMENT_URL = os.getenv(
     "PAYMENT_URL",
