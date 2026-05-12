@@ -91,6 +91,7 @@ class User(Base):
     __tablename__ = "users"
 
     email = Column(String, primary_key=True, index=True)
+    name = Column(String, nullable=True)
     password = Column(String)
 
     email_verified = Column(Boolean, default=False)
@@ -123,6 +124,7 @@ def ensure_user_profile_columns():
     """Add profile/billing/update columns without requiring a manual DB reset."""
     existing = {col["name"] for col in inspect(engine).get_columns("users")}
     columns = {
+        "name": "VARCHAR",
         "account_type": "VARCHAR DEFAULT 'free'",
         "payment_status": "VARCHAR DEFAULT 'trial'",
         "last_payment_amount": "VARCHAR",
@@ -217,49 +219,72 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import os
 
-def send_verification_email(email, code):
+def _send_email(to_email: str, subject: str, html_content: str) -> None:
+    errors = []
+    sendgrid_key = (os.getenv("SENDGRID_API_KEY") or "").strip()
+
+    if sendgrid_key:
+        try:
+            message = Mail(
+                from_email=os.getenv("SMTP_USER") or "sama.ai.license@gmail.com",
+                to_emails=to_email,
+                subject=subject,
+                html_content=html_content,
+            )
+            sg = SendGridAPIClient(sendgrid_key)
+            response = sg.send(message)
+            print("SENDGRID STATUS:", response.status_code)
+            return
+        except Exception as e:
+            errors.append(f"SendGrid failed: {e}")
+            print("SENDGRID ERROR:", e)
 
     try:
-        message = Mail(
-            from_email="sama.ai.license@gmail.com",
-            to_emails=email,
-            subject="Email Verification",
-            html_content=f"<strong>Your verification code is: {code}</strong>"
-        )
+        if not all([SMTP_SERVER, SMTP_PORT, SMTP_USER, SMTP_PASSWORD]):
+            raise RuntimeError("SMTP settings are incomplete")
 
-        sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
-        response = sg.send(message)
+        msg = MIMEText(html_content, "html")
+        msg["Subject"] = subject
+        msg["From"] = SMTP_USER
+        msg["To"] = to_email
 
-        print("SENDGRID STATUS:", response.status_code)
-
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=20) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+        print("SMTP EMAIL SENT")
+        return
     except Exception as e:
-        print("SENDGRID ERROR:", e)
-        raise e
+        errors.append(f"SMTP failed: {e}")
+        print("SMTP ERROR:", e)
+
+    raise RuntimeError("; ".join(errors) or "Email sending failed")
+
+
+def send_verification_email(email, code):
+    _send_email(
+        email,
+        "Email Verification",
+        f"<strong>Your verification code is: {code}</strong>",
+    )
 
 def send_password_reset_email(email, code):
-
-    try:
-        message = Mail(
-            from_email="sama.ai.license@gmail.com",
-            to_emails=email,
-            subject="SAMA AI Password Reset",
-            html_content=(
-                "<p>Your SAMA AI username is your registered email address:</p>"
-                f"<p><strong>{email}</strong></p>"
-                "<p>Use this code to reset your password:</p>"
-                f"<h2>{code}</h2>"
-                "<p>If you did not request this, you can ignore this email.</p>"
-            )
-        )
-
-        sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
-        response = sg.send(message)
-
-        print("SENDGRID RESET STATUS:", response.status_code)
-
-    except Exception as e:
-        print("SENDGRID RESET ERROR:", e)
-        raise e
+    _send_email(
+        email,
+        "SAMA AI Password Reset",
+        (
+            "<p>Your SAMA AI username is your registered email address:</p>"
+            f"<p><strong>{email}</strong></p>"
+            "<p>Use this code to reset your password:</p>"
+            f"<h2>{code}</h2>"
+            "<p>If you did not request this, you can ignore this email.</p>"
+        ),
+    )
 # ------------------------------
 # App/account policy helpers
 # ------------------------------
@@ -442,27 +467,45 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
 
     if user:
         if not user.email_verified:
-            send_verification_email(user.email, user.verification_code)
+            if data.name:
+                user.name = data.name
+            if data.password:
+                user.password = hash_password(data.password)
+            db.commit()
+            try:
+                send_verification_email(user.email, user.verification_code)
+            except Exception as e:
+                print("EMAIL ERROR:", e)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Account exists, but verification email could not be sent. Please check server email settings.",
+                )
             return {"message": "verification code resent"}
         return {"message": "email already registered, please login"}
 
     code = str(secrets.randbelow(900000) + 100000)
 
+    new_user = User(
+        email=data.email,
+        name=data.name,
+        password=hash_password(data.password),
+        verification_code=code,
+        email_verified=False,
+        device_id=None,
+        account_type="free",
+        payment_status="trial",
+    )
+    db.add(new_user)
+    db.commit()
+
     try:
         send_verification_email(data.email, code)
     except Exception as e:
         print("EMAIL ERROR:", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    new_user = User(
-        email=data.email,
-        password=hash_password(data.password),
-        verification_code=code,
-        email_verified=False,
-        device_id=None
-    )
-    db.add(new_user)
-    db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Account was created, but verification email could not be sent. Please check server email settings.",
+        )
 
     return {"message": "verification code sent"}
 # ------------------------------
